@@ -1,11 +1,9 @@
-import pynvml  
 import psutil  
 import os 
 import json
 import time
 import multiprocessing
 import numpy as np
-import GPUtil
 
 
 class CpuInfo(object):
@@ -44,10 +42,11 @@ class CpuInfo(object):
 
 
 class GpuInfo(object):
-    def init(self):
+    def __init__(self):
+        import pynvml  
+        import GPUtil
         # init
         pynvml.nvmlInit()
-        #self.GPUs = GPUtil.getGPUs()
     
     def get_gpu_name(self):
         name = pynvml.nvmlDeviceGetName(handle)
@@ -93,21 +92,51 @@ class GpuInfo(object):
     def release(self):
         pynvml.nvmlShutdown()
 
+class GpuInfoV2(object):
+    def __init__(self):
+        self.gpu_info = {}
+        self.default_att = (
+                    'index',
+                    'uuid',
+                    'name',
+                    'timestamp',
+                    'memory.total',
+                    'memory.free',
+                    'memory.used',
+                    'utilization.gpu',
+                    'utilization.memory'
+                )
+
+    def get_gpu_info(self, gpu_id, nvidia_smi_path='nvidia-smi', no_units=True):
+        """
+        The run time of get_gpu_info are about 70ms.
+        """
+        keys = self.default_att
+        nu_opt = '' if not no_units else ',nounits'
+        cmd = '%s --query-gpu=%s --format=csv,noheader%s' % (nvidia_smi_path, ','.join(keys), nu_opt)
+        f = os.popen(cmd)
+        lines = f.readlines()
+        lines = [ line.strip() for line in lines if line.strip() != '' ]
+
+        gpu_info_list = [ { k: v for k, v in zip(keys, line.split(', ')) } for line in lines ]
+
+        gpu_info={}
+        gpu_info["memory.used"] = float(gpu_info_list[gpu_id]["memory.used"])
+        gpu_info["utilization.gpu"] = float(gpu_info_list[gpu_id]["utilization.gpu"])
+        return gpu_info
 
 class MemInfo(CpuInfo):
     def __init__(self, pids=None, gpu_id=None):
 
-        pynvml.nvmlInit()
-
         self.pids = self.check_pid(pids)
         if gpu_id is not None:
-            self.gpuinfo = GpuInfo()
+            self.gpuinfo = GpuInfoV2()
             self.gpu_id = self.check_gpu_id(gpu_id)
+            # self.gpuinfo.init()
         else:
             self.gpuinfo = None
             self.gpu_id = self.check_gpu_id(gpu_id)
-        
-        self.gpuinfo.init()
+
         self.cpu_infos = {}
         self.gpu_infos = {}
     
@@ -176,8 +205,8 @@ class MemInfo(CpuInfo):
         else:
             for g in self.gpu_id:
                 for k in gpu_infos[str(g)].keys():
-                    self.gpu_infos[str(g)][k] = np.mean([v, self.gpu_infos[str(g)][k]])
-
+                    #self.gpu_infos[str(g)][k] = np.mean([v, self.gpu_infos[str(g)][k]])
+                    self.gpu_infos[str(g)][k] = np.max([v, self.gpu_infos[str(g)][k]])
         return self.cpu_infos, self.gpu_infos
 
 
@@ -185,14 +214,15 @@ class SubprocessGetMem(object):
     def __init__(self, pid, gpu_id):
         self.mem_info = MemInfo(pid, gpu_id)
 
-    def get_mem_subprocess_start(self, q, interval=1.0):
+    def get_mem_subprocess_start(self, q, interval=0.0):
         while True:
             cpu_infos, gpu_infos = self.mem_info.get_avg_mem_mb()
-            q.put([cpu_infos, gpu_infos])
+            pid = os.getpid()
+            q.put([cpu_infos, gpu_infos, pid])
             time.sleep(interval)
         return
     
-    def get_mem_subprocess_init(self, interval=1.0):
+    def get_mem_subprocess_init(self, interval=0.0):
         multiprocessing.set_start_method('fork')
         self.mem_q = multiprocessing.Queue()
 
@@ -200,18 +230,32 @@ class SubprocessGetMem(object):
         self.mem_p = multiprocessing.Process(target=self.get_mem_subprocess_start, args=(self.mem_q, interval))
         self.mem_p.start()
     
-    def get_mem_subprocess_run(self, interval=1.0):
+    def get_mem_subprocess_run(self, interval=0.0):
         self.get_mem_subprocess_init(interval=interval)
     
     def get_mem_subprocess_end(self):
-        self.cpu_infos, self.gpu_infos = self.mem_q.get()
-        # self.mem_p.terminate()
-        self.mem_p.kill()
+        self.cpu_infos, self.gpu_infos, subpid = self.mem_q.get()
+        #self.mem_p.terminate()
+        try: 
+            self.mem_p.kill() # python>=3.7 needed
+        except:
+            import os, signal
+            import subprocess  
+            try:
+                subprocess.Popen("kill -s 9  %i"%subpid , shell=True)   # for linux
+            except: 
+                subprocess.Popen("cmd.exe /k taskkill /F /T /PID %i"%subpid , shell=True) # for win
+
 
 
 
 # if __name__ == "__main__":
+#     gpu_info = GpuInfoV2()
+#     res = gpu_info.get_gpu_info(0)
+#     print(res)
+
 #     # print("----------------------------")
 #     mem_info = MemInfo(11227, [0])
 #     res = mem_info.summary_mem()
 #     print(res)
+

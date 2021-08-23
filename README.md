@@ -17,6 +17,7 @@ python3
 GPUtil
 psutil
 pynvml
+distro
 ```
 
 autolog编译安装：
@@ -24,13 +25,9 @@ autolog编译安装：
 git clone https://github.com/LDOUBLEV/AutoLog
 pip3 install -r requirements.txt
 python3 setup.py bdist_wheel
-pip3 install ./dist/AutoLog-1.0.0-py3-none-any.whl
+pip3 install ./dist/auto_log-1.0.0-py3-none-any.whl
 ```
-autolog 1.0版本下载安装：
-```
-wget https://paddleocr.bj.bcebos.com/whl/AutoLog-1.0.0-py3-none-any.whl
-pip3 install AutoLog-1.0.0-py3-none-any.whl
-```
+
 
 使用方式可以参考[PR](https://github.com/PaddlePaddle/PaddleOCR/pull/3182/files)：
 
@@ -48,4 +45,7 @@ gpu_ids=0,              # int,  当前进程的GPU卡号，默认为None,
 time_keys=None,         # list,  统计时间的键值，默认为['preprocess_time', 'inference_time', 'postprocess_time']
 warmup=10               # int, warmup times,默认为0，warmup次数内，不会统计时间
 ```
+
+# Updates
+- 2021.8.5: 增加获取GPU信息的类GpuInfoV2，从nvidia-smi中获取GPU显存占用，可以不需要引入pynuml和GPUtil 这两个依赖
 
